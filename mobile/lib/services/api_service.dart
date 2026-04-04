@@ -3,15 +3,18 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../models/jump_result.dart';
 
-class ApiService {
-  // For local dev: iOS simulator uses localhost, physical device needs your Mac's IP
-  static const String _baseUrl = 'http://172.20.10.3:8000/api/v1';
+// Change this to your Mac's local IP before running on a physical device.
+// Run `ipconfig getifaddr en0` on your Mac to get the current IP.
+// Simulator: use 127.0.0.1
+// Physical device via iPhone hotspot: typically 172.20.10.x
+const String kApiBaseUrl = 'http://172.20.10.3:8000/api/v1';
 
+class ApiService {
   Future<JumpResult> analyzeJump({
     required File videoFile,
     required double userHeightCm,
   }) async {
-    final uri = Uri.parse('$_baseUrl/jump/analyze');
+    final uri = Uri.parse('$kApiBaseUrl/jump/analyze');
     final request = http.MultipartRequest('POST', uri);
 
     request.fields['user_height_cm'] = userHeightCm.toString();
