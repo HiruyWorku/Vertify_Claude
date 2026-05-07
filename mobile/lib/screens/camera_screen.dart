@@ -212,6 +212,10 @@ class _CameraScreenState extends State<CameraScreen> {
         children: [
           CameraPreview(_controller!),
 
+          // Framing guide — shows where the full body should be
+          if (!_isRecording)
+            const _FramingGuide(),
+
           if (_poses.isNotEmpty && _imageSize != null)
             LayoutBuilder(
               builder: (_, constraints) => CustomPaint(
@@ -223,11 +227,11 @@ class _CameraScreenState extends State<CameraScreen> {
               ),
             ),
 
-          const Positioned(
+          Positioned(
             top: 60,
             left: 0,
             right: 0,
-            child: _TipBanner(),
+            child: _TipBanner(bodyVisible: _poses.isNotEmpty),
           ),
 
           if (_isRecording)
@@ -254,11 +258,83 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 }
 
-class _TipBanner extends StatelessWidget {
-  const _TipBanner();
+class _FramingGuide extends StatelessWidget {
+  const _FramingGuide();
 
   @override
   Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (_, constraints) {
+        final w = constraints.maxWidth;
+        final h = constraints.maxHeight;
+        // A centered rectangle covering ~30% width, ~75% height
+        final rectW = w * 0.30;
+        final rectH = h * 0.75;
+        final left = (w - rectW) / 2;
+        final top = (h - rectH) / 2;
+        return CustomPaint(
+          painter: _FramingGuidePainter(
+            rect: Rect.fromLTWH(left, top, rectW, rectH),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _FramingGuidePainter extends CustomPainter {
+  const _FramingGuidePainter({required this.rect});
+  final Rect rect;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white30
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    const cornerLen = 20.0;
+    final r = rect;
+
+    // Draw corner brackets instead of a full rectangle
+    for (final (x, dx, y, dy) in [
+      (r.left, 1.0, r.top, 1.0),
+      (r.right, -1.0, r.top, 1.0),
+      (r.left, 1.0, r.bottom, -1.0),
+      (r.right, -1.0, r.bottom, -1.0),
+    ]) {
+      canvas.drawLine(Offset(x, y), Offset(x + dx * cornerLen, y), paint);
+      canvas.drawLine(Offset(x, y), Offset(x, y + dy * cornerLen), paint);
+    }
+
+    // Head circle hint at the top
+    final headRadius = rect.width * 0.18;
+    final headCenter = Offset(rect.center.dx, rect.top + headRadius * 1.4);
+    canvas.drawCircle(headCenter, headRadius, paint);
+
+    // Feet line hint at bottom
+    canvas.drawLine(
+      Offset(rect.center.dx - rect.width * 0.15, rect.bottom),
+      Offset(rect.center.dx + rect.width * 0.15, rect.bottom),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_FramingGuidePainter old) => old.rect != rect;
+}
+
+class _TipBanner extends StatelessWidget {
+  const _TipBanner({required this.bodyVisible});
+  final bool bodyVisible;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = bodyVisible
+        ? '✓ Body detected — press record when ready'
+        : 'Stand 6–8 ft away • Full body in frame • Camera level';
+    final color = bodyVisible ? Colors.greenAccent : Colors.white70;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -266,10 +342,10 @@ class _TipBanner extends StatelessWidget {
         color: Colors.black54,
         borderRadius: BorderRadius.circular(10),
       ),
-      child: const Text(
-        'Stand 6–8 ft away • Full body in frame • Camera level',
+      child: Text(
+        text,
         textAlign: TextAlign.center,
-        style: TextStyle(color: Colors.white70, fontSize: 13),
+        style: TextStyle(color: color, fontSize: 13),
       ),
     );
   }

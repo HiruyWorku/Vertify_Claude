@@ -16,6 +16,8 @@ dependencies:
   provider: ^6.1.2
   path_provider: ^2.1.4
   cupertino_icons: ^1.0.8
+  shared_preferences: ^2.3.0
+  fl_chart: ^0.69.0
 
 dev_dependencies:
   flutter_test:

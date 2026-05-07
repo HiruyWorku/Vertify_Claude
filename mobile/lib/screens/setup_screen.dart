@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/jump_provider.dart';
 import 'camera_screen.dart';
+import 'history_screen.dart';
 
 /// First-run screen: user enters their height before recording.
 class SetupScreen extends StatefulWidget {
@@ -24,7 +25,18 @@ class _SetupScreenState extends State<SetupScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 48),
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  icon: const Icon(Icons.bar_chart, color: Colors.white38),
+                  tooltip: 'History',
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const HistoryScreen()),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
               const Text(
                 'Jumpology',
                 textAlign: TextAlign.center,

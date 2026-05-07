@@ -26,4 +26,13 @@ class JumpResult {
       processingNotes: List<String>.from(result['processing_notes'] ?? []),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'jump_detected': jumpDetected,
+        'jump_height_cm': jumpHeightCm,
+        'jump_height_inches': jumpHeightInches,
+        'hang_time_ms': hangTimeMs,
+        'confidence': confidence,
+        'processing_notes': processingNotes,
+      };
 }
