@@ -21,6 +21,7 @@ Caveats handled:
   Good enough for a single-jump measurement.
 """
 
+import logging
 import math
 from typing import Optional
 
@@ -28,6 +29,8 @@ import numpy as np
 
 from app.models.pose import PoseFrame, LandmarkIndex
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def estimate_pixels_per_cm(
@@ -43,21 +46,40 @@ def estimate_pixels_per_cm(
     real_leg_cm = user_height_cm * settings.leg_to_height_ratio
     ratios: list[float] = []
 
+    logger.debug(
+        f"estimate_pixels_per_cm: {len(ground_frames)} ground frames, "
+        f"frame_height={frame_height}, user_height_cm={user_height_cm}, "
+        f"real_leg_cm={real_leg_cm:.1f}"
+    )
+
     for frame in ground_frames:
         lh = frame.landmarks.get(LandmarkIndex.LEFT_HIP)
         la = frame.landmarks.get(LandmarkIndex.LEFT_ANKLE)
         rh = frame.landmarks.get(LandmarkIndex.RIGHT_HIP)
         ra = frame.landmarks.get(LandmarkIndex.RIGHT_ANKLE)
 
-        for hip, ankle in [(lh, la), (rh, ra)]:
+        for side, hip, ankle in [("L", lh, la), ("R", rh, ra)]:
+            if hip and ankle:
+                logger.debug(
+                    f"  frame {frame.frame_idx} {side}: "
+                    f"hip.y={hip.y:.3f}(vis={hip.visibility:.2f}) "
+                    f"ankle.y={ankle.y:.3f}(vis={ankle.visibility:.2f})"
+                )
+            # Require high ankle visibility — low visibility means feet are off-screen
+            # or occluded, giving unreliable y estimates.
             if (hip and ankle
                     and hip.visibility > 0.5
-                    and ankle.visibility > 0.5):
+                    and ankle.visibility > 0.65):
                 pixel_leg = (ankle.y - hip.y) * frame_height  # positive: ankle below hip
-                if pixel_leg > 10:
+                logger.debug(f"    → pixel_leg={pixel_leg:.1f}px")
+                # Also require a minimum plausible leg length to filter mid-stride frames
+                if pixel_leg > 50:
                     ratios.append(pixel_leg / real_leg_cm)
 
+    logger.debug(f"  valid ratios collected: {len(ratios)} — values: {[round(r,3) for r in ratios[:10]]}")
+
     if not ratios:
+        logger.warning("estimate_pixels_per_cm: no valid ratios — returning 0.0")
         return 0.0, 0.0
 
     # Reject outliers beyond 1.5 IQR

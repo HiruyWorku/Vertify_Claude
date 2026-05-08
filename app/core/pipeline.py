@@ -68,21 +68,33 @@ def analyze_jump(video_path: str | Path, user_height_cm: float) -> JumpResult:
             processing_notes=notes + ["No jump detected — ensure full body is visible and jump is performed"],
         )
 
-    # Gather ground frames for scaling calibration
-    ground_frames: list[PoseFrame] = [
+    # Gather stable standing frames for scaling calibration.
+    # Pre-takeoff approach frames are often mid-stride (legs spread), giving bad calibration.
+    # Post-landing frames are more reliable — person is stationary after the jump.
+    pre_frames: list[PoseFrame] = [
         f for f in pose_frames
         if best.takeoff_frame is not None and f.frame_idx < best.takeoff_frame
     ]
-    if not ground_frames:
-        ground_frames = pose_frames[:min(30, len(pose_frames))]
+    post_frames: list[PoseFrame] = [
+        f for f in pose_frames
+        if best.landing_frame is not None and f.frame_idx > best.landing_frame
+    ]
+    # Prefer post-landing (most stable), supplement with pre-takeoff, fallback to all
+    ground_frames = post_frames or pre_frames or pose_frames[:min(30, len(pose_frames))]
+
+    logger.debug(f"Ground frames for scaling: {len(ground_frames)} (takeoff_frame={best.takeoff_frame})")
+    logger.debug(f"Jump event: ground_com_y={best.ground_com_y:.4f}, peak_com_y={best.peak_com_y:.4f}, delta_y={best.ground_com_y - best.peak_com_y:.4f}, hang_frames={best.hang_time_frames}")
 
     pixels_per_cm, scale_confidence = estimate_pixels_per_cm(
         ground_frames, height, user_height_cm
     )
+    logger.debug(f"pixels_per_cm={pixels_per_cm:.4f}, scale_confidence={scale_confidence:.2f}")
+
+    # hang_time_frames counts sampled frames; multiply by sample_rate to get real frame count
+    hang_time_s = best.hang_time_frames * settings.frame_sample_rate / fps
 
     if pixels_per_cm <= 0:
         notes.append("Could not calibrate scale — defaulting to hang-time estimate")
-        hang_time_s = best.hang_time_frames / fps
         height_cm = hang_time_to_height(hang_time_s)
         height_inches = height_cm / 2.54
         confidence = best.confidence * 0.4  # lower confidence for physics-only estimate
@@ -91,7 +103,6 @@ def analyze_jump(video_path: str | Path, user_height_cm: float) -> JumpResult:
         height_cm, height_inches = compute_jump_height(delta_y, height, pixels_per_cm)
 
         # Cross-check with hang time
-        hang_time_s = best.hang_time_frames / fps
         physics_height_cm = hang_time_to_height(hang_time_s)
         ratio = height_cm / physics_height_cm if physics_height_cm > 0 else 1.0
 
@@ -100,7 +111,6 @@ def analyze_jump(video_path: str | Path, user_height_cm: float) -> JumpResult:
                 f"Vision height ({height_cm:.1f}cm) vs hang-time ({physics_height_cm:.1f}cm) "
                 f"differ significantly — result may be inaccurate"
             )
-            # Blend the two estimates, weight by confidence
             blended_cm = height_cm * 0.6 + physics_height_cm * 0.4
             logger.warning(f"Blending estimates: vision={height_cm:.1f}cm hang={physics_height_cm:.1f}cm → {blended_cm:.1f}cm")
             height_cm = blended_cm
@@ -108,7 +118,7 @@ def analyze_jump(video_path: str | Path, user_height_cm: float) -> JumpResult:
 
         confidence = best.confidence * (0.7 + 0.3 * scale_confidence)
 
-    hang_time_ms = (best.hang_time_frames / fps) * 1000
+    hang_time_ms = hang_time_s * 1000
 
     logger.info(
         f"Jump: {height_cm:.1f}cm ({height_inches:.1f}in), "

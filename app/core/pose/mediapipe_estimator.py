@@ -1,24 +1,21 @@
 """
-MediaPipe Pose estimator wrapper.
+MediaPipe Pose estimator using the Tasks API (mediapipe >= 0.10).
 
-Why MediaPipe over MoveNet for the backend:
-- 33 landmarks (vs MoveNet's 17) — full foot/ankle detail
-- Z-depth estimate useful for perspective correction
-- Segmentation mask available for future green-screen replay feature
-- Runs efficiently on CPU for server-side batch processing
-
-For on-device (Flutter), the mobile team should use google_ml_kit which
-wraps the same MediaPipe model. This ensures parity between on-device
-and server results.
+Uses PoseLandmarker in VIDEO running mode, which shares tracking state
+across frames for better temporal consistency than per-image detection.
 """
 
-import mediapipe as mp
 import cv2
-import numpy as np
-from typing import Iterator
+from pathlib import Path
+
+import mediapipe as mp
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision as mp_vision
 
 from app.models.pose import PoseFrame, Keypoint
 from app.config import settings
+
+_DEFAULT_MODEL = Path(__file__).parent.parent.parent.parent / "models" / "pose_landmarker_full.task"
 
 
 class MediaPipeEstimator:
@@ -27,15 +24,26 @@ class MediaPipeEstimator:
         model_complexity: int = 1,
         min_detection_confidence: float = 0.5,
         min_tracking_confidence: float = 0.5,
+        model_path: str | Path | None = None,
     ):
-        self._mp_pose = mp.solutions.pose
-        self._pose = self._mp_pose.Pose(
-            static_image_mode=False,
-            model_complexity=model_complexity,
-            enable_segmentation=False,
-            min_detection_confidence=min_detection_confidence,
+        model_path = Path(model_path) if model_path else _DEFAULT_MODEL
+        if not model_path.exists():
+            raise FileNotFoundError(
+                f"Mediapipe model not found at {model_path}. "
+                "Download it with: python scripts/download_model.py"
+            )
+
+        base_options = mp_python.BaseOptions(model_asset_path=str(model_path))
+        options = mp_vision.PoseLandmarkerOptions(
+            base_options=base_options,
+            running_mode=mp_vision.RunningMode.VIDEO,
+            num_poses=1,
+            min_pose_detection_confidence=min_detection_confidence,
+            min_pose_presence_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence,
+            output_segmentation_masks=False,
         )
+        self._landmarker = mp_vision.PoseLandmarker.create_from_options(options)
 
     def process_video(self, video_path: str) -> tuple[list[PoseFrame], float, int, int]:
         """
@@ -52,7 +60,6 @@ class MediaPipeEstimator:
 
         frames: list[PoseFrame] = []
         frame_idx = 0
-
         sample_rate = settings.frame_sample_rate
         raw_idx = 0
 
@@ -61,19 +68,20 @@ class MediaPipeEstimator:
             if not ret:
                 break
 
-            # Skip frames to hit target processing rate
             if raw_idx % sample_rate != 0:
                 raw_idx += 1
                 continue
 
             timestamp_ms = cap.get(cv2.CAP_PROP_POS_MSEC)
             rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-            results = self._pose.process(rgb)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+
+            result = self._landmarker.detect_for_video(mp_image, int(timestamp_ms))
 
             pose_frame = PoseFrame(frame_idx=frame_idx, timestamp_ms=timestamp_ms)
 
-            if results.pose_landmarks:
-                for idx, lm in enumerate(results.pose_landmarks.landmark):
+            if result.pose_landmarks:
+                for idx, lm in enumerate(result.pose_landmarks[0]):
                     pose_frame.landmarks[idx] = Keypoint(
                         x=lm.x,
                         y=lm.y,
@@ -89,7 +97,7 @@ class MediaPipeEstimator:
         return frames, fps, width, height
 
     def close(self) -> None:
-        self._pose.close()
+        self._landmarker.close()
 
     def __enter__(self):
         return self
